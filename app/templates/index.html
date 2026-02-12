@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>CareerCompass</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}" />
+  </head>
+  <body>
+    <main class="container">
+      <h1>CareerCompass</h1>
+      <p class="subtitle">AI career guidance chatbot (Flask + LangChain)</p>
+      {% if llm_error %}
+      <div class="warning">
+        Running in fallback mode: {{ llm_error }}
+      </div>
+      {% endif %}
+
+      <section id="chat-window" class="chat-window"></section>
+
+      <form id="chat-form" class="chat-form">
+        <textarea id="message" placeholder="Ask for a career roadmap, skill plan, interview prep..." rows="3" required></textarea>
+        <button type="submit">Send</button>
+      </form>
+    </main>
+
+    <script src="{{ url_for('static', filename='app.js') }}"></script>
+  </body>
+</html>
