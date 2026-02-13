@@ -75,7 +75,8 @@ Use token in authenticated routes:
 Authorization: Bearer <access_token>
 ```
 
-## Chat/session APIs
+## Auth/session APIs
+- `GET /api/me` → current authenticated user profile/tier
 - `GET /api/sessions` → list all sessions for authenticated user
 - `POST /api/chat` with:
 ```json
@@ -92,7 +93,7 @@ Per user, per endpoint, per minute:
 - `pro`: 60 requests/min
 - `enterprise`: 300 requests/min
 
-Stored and enforced through Redis counters.
+Stored and enforced through Redis counters in fixed minute buckets.
 
 ## Production run
 ```bash

@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from app import create_app
-from app.config import settings
 
 
 class FakeRedis:
@@ -19,32 +18,35 @@ class FakeRedis:
         return None
 
 
-def build_client(monkeypatch):
-    settings.database_url = "sqlite+pysqlite:///:memory:"
-    import app as app_module
-
-    monkeypatch.setattr(app_module, "RedisStore", FakeRedis)
-    flask_app = create_app()
+def build_client():
+    flask_app = create_app(
+        test_config={"SQLALCHEMY_DATABASE_URI": "sqlite+pysqlite:///:memory:"},
+        redis_store_cls=FakeRedis,
+    )
     return flask_app.test_client()
 
 
-def test_health_endpoint(monkeypatch) -> None:
-    client = build_client(monkeypatch)
+def register(client, email="user@example.com", tier="free"):
+    return client.post(
+        "/api/auth/register",
+        json={"email": email, "password": "strongpass123", "tier": tier},
+    )
+
+
+def test_health_endpoint() -> None:
+    client = build_client()
     response = client.get("/health")
     assert response.status_code == 200
     payload = response.get_json()
     assert payload["db"] == "ok"
 
 
-def test_auth_and_chat_session_flow(monkeypatch) -> None:
-    client = build_client(monkeypatch)
+def test_auth_and_chat_session_flow() -> None:
+    client = build_client()
 
-    register = client.post(
-        "/api/auth/register",
-        json={"email": "user@example.com", "password": "strongpass123", "tier": "free"},
-    )
-    assert register.status_code == 201
-    token = register.get_json()["access_token"]
+    register_resp = register(client)
+    assert register_resp.status_code == 201
+    token = register_resp.get_json()["access_token"]
 
     chat = client.post(
         "/api/chat",
@@ -60,7 +62,28 @@ def test_auth_and_chat_session_flow(monkeypatch) -> None:
     assert len(sessions.get_json()["sessions"]) == 1
 
 
-def test_chat_requires_auth(monkeypatch) -> None:
-    client = build_client(monkeypatch)
+def test_chat_requires_auth() -> None:
+    client = build_client()
     response = client.post("/api/chat", json={"message": "hello"})
     assert response.status_code == 401
+
+
+def test_free_tier_rate_limit() -> None:
+    client = build_client()
+    register_resp = register(client)
+    token = register_resp.get_json()["access_token"]
+
+    for _ in range(10):
+        ok = client.post(
+            "/api/chat",
+            json={"message": "Plan my transition"},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert ok.status_code == 200
+
+    limited = client.post(
+        "/api/chat",
+        json={"message": "One more"},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert limited.status_code == 429

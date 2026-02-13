@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+from datetime import datetime, timezone
+from typing import Any
+
 from flask import Flask, g, jsonify, render_template, request
 from flask_cors import CORS
 from pydantic import ValidationError
@@ -19,16 +22,20 @@ RATE_LIMITS_PER_MINUTE: dict[Tier, int] = {
 }
 
 
-def create_app() -> Flask:
+def create_app(test_config: dict[str, Any] | None = None, redis_store_cls: type[RedisStore] = RedisStore) -> Flask:
     app = Flask(__name__)
     app.config["SECRET_KEY"] = settings.secret_key
     app.config["SQLALCHEMY_DATABASE_URI"] = settings.database_url
     app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
+
+    if test_config:
+        app.config.update(test_config)
+
     CORS(app)
     db.init_app(app)
 
     auth_service = AuthService()
-    redis_store = RedisStore()
+    redis_store = redis_store_cls()
 
     llm_service: LLMService | None = None
     llm_error: str | None = None
@@ -53,9 +60,11 @@ def create_app() -> Flask:
 
     def enforce_rate_limit(user: User) -> bool:
         limit = RATE_LIMITS_PER_MINUTE[user.tier]
-        key = f"rate:{user.id}:{request.endpoint}"
+        now = datetime.now(timezone.utc)
+        bucket = now.strftime("%Y%m%d%H%M")
+        key = f"rate:{user.id}:{request.endpoint}:{bucket}"
         try:
-            current = redis_store.incr_with_ttl(key, 60)
+            current = redis_store.incr_with_ttl(key, 70)
         except Exception:
             return True
         return current <= limit
@@ -119,6 +128,12 @@ def create_app() -> Flask:
         token = auth_service.issue_token(user.id)
         return AuthResponse(access_token=token, user_id=user.id, tier=user.tier.value).model_dump(), 200
 
+    @app.get("/api/me")
+    def me() -> tuple[dict, int]:
+        if not g.user:
+            return jsonify({"error": "Unauthorized"}), 401
+        return {"id": g.user.id, "email": g.user.email, "tier": g.user.tier.value}, 200
+
     @app.get("/api/sessions")
     def list_sessions() -> tuple[dict, int]:
         if not g.user:
@@ -128,7 +143,12 @@ def create_app() -> Flask:
             select(ChatSession).where(ChatSession.user_id == g.user.id).order_by(ChatSession.updated_at.desc())
         ).all()
         data = [
-            {"id": s.id, "title": s.title, "created_at": s.created_at.isoformat(), "updated_at": s.updated_at.isoformat()}
+            {
+                "id": s.id,
+                "title": s.title,
+                "created_at": s.created_at.isoformat(),
+                "updated_at": s.updated_at.isoformat(),
+            }
             for s in sessions
         ]
         return {"sessions": data}, 200
@@ -146,7 +166,6 @@ def create_app() -> Flask:
         except ValidationError as exc:
             return jsonify({"error": "Invalid payload", "details": exc.errors()}), 400
 
-        chat_session = None
         if payload.session_id:
             chat_session = db.session.get(ChatSession, payload.session_id)
             if not chat_session or chat_session.user_id != g.user.id:
@@ -157,9 +176,7 @@ def create_app() -> Flask:
             db.session.flush()
 
         prior_messages = db.session.scalars(
-            select(ChatMessage)
-            .where(ChatMessage.session_id == chat_session.id)
-            .order_by(ChatMessage.created_at.asc())
+            select(ChatMessage).where(ChatMessage.session_id == chat_session.id).order_by(ChatMessage.created_at.asc())
         ).all()
 
         history = []

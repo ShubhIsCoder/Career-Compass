@@ -16,10 +16,9 @@ class RedisStore:
         return bool(self.client.ping())
 
     def incr_with_ttl(self, key: str, ttl_seconds: int) -> int:
-        with self.client.pipeline() as pipe:
-            pipe.incr(key)
-            pipe.expire(key, ttl_seconds)
-            value, _ = pipe.execute()
+        value = self.client.incr(key)
+        if value == 1:
+            self.client.expire(key, ttl_seconds)
         return int(value)
 
     def set_json(self, key: str, payload: dict, ttl_seconds: int = 3600) -> None:

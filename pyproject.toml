@@ -34,5 +34,5 @@ testpaths = ["tests"]
 line-length = 100
 
 [build-system]
-requires = ["setuptools>=68", "wheel"]
+requires = ["setuptools", "wheel"]
 build-backend = "setuptools.build_meta"

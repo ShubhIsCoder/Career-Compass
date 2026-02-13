@@ -3,7 +3,6 @@ const chatForm = document.getElementById("chat-form");
 const messageInput = document.getElementById("message");
 const quickPrompts = document.getElementById("quick-prompts");
 
-const history = [];
 let sessionId = null;
 let token = localStorage.getItem("cc_token");
 
@@ -24,12 +23,16 @@ async function ensureAuth() {
     throw new Error("Authentication required");
   }
 
-  const tryEndpoints = ["/api/auth/login", "/api/auth/register"];
-  for (const endpoint of tryEndpoints) {
-    const response = await fetch(endpoint, {
+  const attempts = [
+    { endpoint: "/api/auth/login", payload: { email, password } },
+    { endpoint: "/api/auth/register", payload: { email, password, tier: "free" } },
+  ];
+
+  for (const attempt of attempts) {
+    const response = await fetch(attempt.endpoint, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ email, password, tier: "free" }),
+      body: JSON.stringify(attempt.payload),
     });
 
     if (response.ok) {
@@ -86,7 +89,6 @@ chatForm.addEventListener("submit", async (event) => {
     sessionId = data.session_id;
     typingBubble.remove();
     addMessage("bot", data.reply);
-    history.push({ user: message, assistant: data.reply });
   } catch (error) {
     typingBubble.remove();
     const errorMessage = error instanceof Error ? error.message : "Unexpected error";
